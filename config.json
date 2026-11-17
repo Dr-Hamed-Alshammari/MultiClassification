@@ -1,0 +1,19 @@
+{
+    "model_name": "xlm-roberta-base",
+    "num_labels": 3,
+    "class_names": ["negative", "neutral", "positive"],
+    "use_class_weights": false,
+    "max_length": 512,
+    "learning_rate": 3e-5,
+    "initial_learning_rate": 1e-9,
+    "warmup_epochs": 5,
+    "epochs": 10,
+    "batch_size": 32,
+    "testing_batch_size": 32,
+    "root_folder": "Dataset",
+    "model_save_path": "saved_model",
+    "final_model_path": "final_model",
+    "checkpoint_path": "sentiment_checkpoints",
+    "seed": 1,
+    "patience": 5
+}
