@@ -35,8 +35,7 @@ def remove_arabic_diacritics(text):
 
 class ClassifierDataset(Dataset):
     def __init__(self, tokenizer, data_type):
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-        logging.info('Initializing ClassifierDataset')
+        logging.info(f'Initializing ClassifierDataset ({data_type})')
 
         if not os.path.isdir(dataset_folder):
             logging.error(f"Directory not found: {dataset_folder}")

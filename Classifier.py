@@ -15,8 +15,7 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_s
                              roc_curve, auc, confusion_matrix, classification_report)
 from sklearn.preprocessing import label_binarize
 
-logging.basicConfig(filename='classifier.log', level=logging.INFO, format='%(asctime)s - %(message)s',
-                    datefmt='%d-%b-%y %H:%M:%S')
+from utils import finish_figure
 
 
 class CustomClassifierHead(nn.Module):
@@ -49,7 +48,7 @@ class CustomModel(nn.Module):
 
 class Classifier(nn.Module):
     def __init__(self, model_name, num_labels, class_names, learning_rate, epochs, checkpoint_path, patience,
-                 initial_learning_rate, warmup_epochs, class_weights=None):
+                 initial_learning_rate, warmup_epochs, class_weights=None, show_plots=False, results_path='results'):
         super(Classifier, self).__init__()
         if len(class_names) != num_labels:
             raise ValueError("class_names must have exactly num_labels entries.")
@@ -77,6 +76,10 @@ class Classifier(nn.Module):
         self.early_stopping_triggered = False
         self.initial_learning_rate = initial_learning_rate
         self.warmup_epochs = warmup_epochs
+        # Plots are always saved to results_path; show_plots only controls whether windows pop up
+        # (and even then only for the final test-set plots, so training never pauses).
+        self.show_plots = show_plots
+        self.results_path = results_path
 
     def forward(self, input_ids, attention_mask):
         return self.model(input_ids, attention_mask)
@@ -279,9 +282,11 @@ class Classifier(nn.Module):
         }
         getattr(self, f'evaluation_accuracies_{context}').append(accuracy)
 
-        self.plot_absolute_confusion_matrix(y_true, y_pred, context)
-        self.plot_normalized_confusion_matrix(y_true, y_pred, context)
-        self.plot_roc_curve(y_true, y_prob, context)
+        # Validation plots are saved (overwritten each epoch) but never shown; test plots can be shown
+        show = self.show_plots and context == 'testing'
+        self.plot_absolute_confusion_matrix(y_true, y_pred, context, show=show)
+        self.plot_normalized_confusion_matrix(y_true, y_pred, context, show=show)
+        self.plot_roc_curve(y_true, y_prob, context, show=show)
 
         return avg_loss, accuracy
 
@@ -332,10 +337,9 @@ class Classifier(nn.Module):
         plt.legend(loc='best')
 
         plt.tight_layout()
-        plt.savefig('training_metrics.png')
-        plt.show()
+        finish_figure(os.path.join(self.results_path, 'training_metrics.png'), self.show_plots)
 
-    def plot_roc_curve(self, y_true, y_prob, context='validation'):
+    def plot_roc_curve(self, y_true, y_prob, context='validation', show=False):
         """One-vs-rest ROC curve for each class."""
         y_true_bin = label_binarize(y_true, classes=list(range(self.num_labels)))  # (N, num_labels)
 
@@ -353,10 +357,9 @@ class Classifier(nn.Module):
         plt.title(f'{context.capitalize()} ROC Curves (One-vs-Rest)')
         plt.legend(loc="lower right")
         plt.grid(True)
-        plt.savefig(f'roc_curve_{context}.png')
-        plt.show()
+        finish_figure(os.path.join(self.results_path, f'roc_curve_{context}.png'), show)
 
-    def _plot_confusion_matrix(self, cm, context, normalized):
+    def _plot_confusion_matrix(self, cm, context, normalized, show=False):
         values = cm
         if normalized:
             row_sums = cm.sum(axis=1, keepdims=True)
@@ -384,21 +387,20 @@ class Classifier(nn.Module):
 
         plt.tight_layout()
         suffix = '_normalized' if normalized else ''
-        plt.savefig(f'confusion_matrix_{context}{suffix}.png')
-        plt.show()
+        finish_figure(os.path.join(self.results_path, f'confusion_matrix_{context}{suffix}.png'), show)
 
-    def plot_absolute_confusion_matrix(self, y_true, y_pred, context='validation'):
+    def plot_absolute_confusion_matrix(self, y_true, y_pred, context='validation', show=False):
         assert context in ['validation', 'testing'], "Context must be either 'validation' or 'testing'"
         self.logger.info(f'Plotting absolute confusion matrix for {context}.')
         cm = confusion_matrix(y_true, y_pred, labels=list(range(self.num_labels)))
-        self._plot_confusion_matrix(cm, context, normalized=False)
+        self._plot_confusion_matrix(cm, context, normalized=False, show=show)
 
-    def plot_normalized_confusion_matrix(self, y_true, y_pred, context='validation'):
+    def plot_normalized_confusion_matrix(self, y_true, y_pred, context='validation', show=False):
         """Row-normalized: the diagonal shows each class's recall."""
         assert context in ['validation', 'testing'], "Context must be either 'validation' or 'testing'"
         self.logger.info(f'Plotting normalized confusion matrix for {context}.')
         cm = confusion_matrix(y_true, y_pred, labels=list(range(self.num_labels)))
-        self._plot_confusion_matrix(cm, context, normalized=True)
+        self._plot_confusion_matrix(cm, context, normalized=True, show=show)
 
     def plot_final_accuracies(self, final_train_accuracy, final_test_accuracy):
         if final_train_accuracy is None or final_test_accuracy is None:
@@ -414,5 +416,4 @@ class Classifier(nn.Module):
         plt.ylabel('Accuracy')
         plt.title('Final Training & Testing Accuracy')
         plt.legend(['Accuracy'])
-        plt.savefig('final_accuracies.png')
-        plt.show()
+        finish_figure(os.path.join(self.results_path, 'final_accuracies.png'), self.show_plots)

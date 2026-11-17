@@ -16,14 +16,14 @@ from sklearn.preprocessing import label_binarize
 
 from Classifier import CustomModel
 from ClassifierDataset import ClassifierDataset, remove_arabic_diacritics
+from utils import setup_logging, log_run_header, finish_figure
 
 " This class is used to evaluate the model on the testing set (and to run predictions on new texts)."
 
 
 class Evaluator:
-    def __init__(self, model_path, model_name, num_labels, class_names, device, max_length=512):
-        logging.basicConfig(filename='classifier.log', level=logging.INFO, format='%(asctime)s - %(message)s',
-                            datefmt='%d-%b-%y %H:%M:%S')
+    def __init__(self, model_path, model_name, num_labels, class_names, device, max_length=512,
+                 results_path='results', show_plots=False):
         self.logger = logging.getLogger(__name__)
         self.logger.info("Initializing Evaluator...")
 
@@ -36,6 +36,9 @@ class Evaluator:
         self.class_names = list(class_names)
         self.device = device
         self.max_length = max_length
+        self.results_path = results_path
+        self.show_plots = show_plots
+        os.makedirs(self.results_path, exist_ok=True)
 
         try:
             self.model = CustomModel(model_name, num_labels)
@@ -54,6 +57,7 @@ class Evaluator:
             raise
 
     def evaluate(self, data_loader, predictions_csv='test_predictions.csv'):
+        """Evaluates on a labeled DataLoader. predictions_csv is written inside results_path (None to skip)."""
         self.model.eval()
         total_loss = 0
         y_true, y_pred, y_prob = [], [], []
@@ -122,8 +126,9 @@ class Evaluator:
             })
             for idx, name in enumerate(self.class_names):
                 df[f'prob_{name}'] = y_prob[:, idx]
-            df.to_csv(predictions_csv, index=False)
-            self.logger.info(f"Per-sample predictions saved to {predictions_csv}")
+            csv_path = os.path.join(self.results_path, predictions_csv)
+            df.to_csv(csv_path, index=False, encoding='utf-8-sig')  # utf-8-sig so Excel shows Arabic correctly
+            self.logger.info(f"Per-sample predictions saved to {csv_path}")
 
         self.plot_roc_curve(y_true, y_prob)
         self.plot_confusion_matrix(y_true, y_pred)
@@ -167,8 +172,7 @@ class Evaluator:
         plt.title('Testing ROC Curves (One-vs-Rest)')
         plt.legend(loc="lower right")
         plt.grid(True)
-        plt.savefig('roc_curve_testing.png')
-        plt.show()
+        finish_figure(os.path.join(self.results_path, 'roc_curve_eval.png'), self.show_plots)
 
     def _plot_cm(self, values, title, cmap, fmt, file_name):
         plt.figure(figsize=(7, 6))
@@ -185,8 +189,7 @@ class Evaluator:
         plt.xlabel('Predicted Class')
         plt.ylabel('Actual Class')
         plt.tight_layout()
-        plt.savefig(file_name)
-        plt.show()
+        finish_figure(os.path.join(self.results_path, file_name), self.show_plots)
 
     def plot_confusion_matrix(self, y_true, y_pred):
         cm = confusion_matrix(y_true, y_pred, labels=list(range(self.num_labels)))
@@ -204,8 +207,11 @@ class Evaluator:
 
 # Function to run the evaluation independently
 def run_evaluation():
-    with open('config.json', 'r') as config_file:
+    with open('config.json', 'r', encoding='utf-8') as config_file:
         config = json.load(config_file)
+
+    setup_logging(config.get('log_file', 'classifier.log'))
+    log_run_header(logging.getLogger(__name__), 'evaluation', config)
 
     model_name = config['model_name']
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -220,9 +226,13 @@ def run_evaluation():
         class_names=config['class_names'],
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         max_length=config.get('max_length', 512),
+        results_path=config.get('results_path', 'results'),
+        show_plots=config.get('show_plots', False),
     )
 
-    evaluator.evaluate(test_loader)
+    metrics = evaluator.evaluate(test_loader)
+    logging.getLogger(__name__).info(f"Final evaluation metrics: {metrics}")
+    logging.getLogger(__name__).info("EVALUATION RUN FINISHED")
 
     # Example: inference on new, unlabeled texts
     # labels, probs = evaluator.predict(["الخدمة ممتازة جدا", "المنتج سيء"], tokenizer)
