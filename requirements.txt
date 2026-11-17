@@ -1,0 +1,9 @@
+# Install PyTorch FIRST with the command for your GPU/OS from https://pytorch.org/get-started/locally/
+# (a plain "pip install torch" may give you a CPU-only build on Windows)
+torch>=2.1
+transformers>=4.40
+sentencepiece
+pandas
+scikit-learn
+matplotlib
+tqdm
